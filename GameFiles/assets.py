@@ -17,7 +17,7 @@ class AssetManager:
       - PyInstaller builds (temporary extraction folder via sys._MEIPASS)
 
     Notes on folder structure assumptions:
-      - Images (e.g., profile pictures) live under config.DOWNLOADS_FOLDER
+      - Images (e.g., profile pictures) live under config.IMAGES_FOLDER
       - Sound files typically live under a top-level "SoundEffects" folder
     """
 
@@ -81,8 +81,8 @@ class AssetManager:
         """
         try:
             # Base folder for profile picture downloads.
-            # config.DOWNLOADS_FOLDER should be a folder name or relative path.
-            base_folder = self.get_resource_path(self.config.DOWNLOADS_FOLDER)
+            # config.IMAGES_FOLDER should be a folder name or relative path.
+            base_folder = self.get_resource_path(self.config.IMAGES_FOLDER)
 
             # Individual file names/relative paths as defined by config.
             pfp_paths = [

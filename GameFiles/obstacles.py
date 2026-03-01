@@ -21,7 +21,7 @@ class CornerObstacle:
     def __init__(self, corner: str, bounds: pygame.Rect):
         self.corner = corner
         self.colour = Colours.WHITE  # British spelling
-        self.radius = 100           # How far the ramp extends from the corner
+        self.radius = 175           # How far the ramp extends from the corner
         self.triangles = self._create_triangles(bounds)
 
     def _create_triangles(self, b: pygame.Rect) -> List[List[Tuple[int, int]]]:

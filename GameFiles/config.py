@@ -7,6 +7,7 @@ from typing import List
 
 class GameState(Enum):
     """High-level states that control the match flow and UI."""
+    WHEEL_SPIN = "wheel_spin"
     VS_SCREEN = "vs_screen"
     COUNTDOWN = "countdown"
     PLAYING = "playing"
@@ -43,7 +44,7 @@ class GameConfig:
     # =========================
     # Expected format: "DisplayName (@handle) DisplayName2 (@handle2) ..."
     # The parser groups tokens until it sees something ending in ')'.
-    NAMES_STRING: str = "Ad@m13L (@adamjw_13) Blehhh (@sillycatbleh)"
+    NAMES_STRING: str = "Player 1"
 
     SPINNER1_NAME: str = ""
     SPINNER2_NAME: str = ""
@@ -100,7 +101,7 @@ class GameConfig:
     # =========================
     # ASSETS
     # =========================
-    DOWNLOADS_FOLDER: str = r"D:\Downloads 2"
+    IMAGES_FOLDER: str = r"Desktop"
 
     PFP1_JPG_PATH: str = "pfp1.jpeg"
     PFP2_JPG_PATH: str = "pfp2.jpeg"

@@ -10,6 +10,7 @@ from items import HealthPack, DaggerItem, ShieldItem
 from obstacles import CornerObstacle
 from collision import CollisionManager
 from renderer import Renderer
+from wheelSpin import Wheel, WheelSpinner
 
 
 class Game:
@@ -43,7 +44,7 @@ class Game:
         self.asset_manager = AssetManager(self.config)
 
         # State machine control
-        self.game_state = GameState.VS_SCREEN
+        self.game_state = GameState.WHEEL_SPIN
         self.vs_start_time = pygame.time.get_ticks()
         self.last_time = pygame.time.get_ticks()  # Used for 1-second countdown ticks
         self.countdown = self.config.COUNTDOWN_TIME
@@ -54,6 +55,22 @@ class Game:
 
         # End-of-match console output guard.
         self.results_printed = False
+
+        # --------------------------------------------------
+        # WHEEL SPIN
+        # --------------------------------------------------
+        spinner_names = [
+            name for name in [
+                self.config.SPINNER1_NAME,
+                self.config.SPINNER2_NAME,
+                self.config.SPINNER3_NAME,
+                self.config.SPINNER4_NAME,
+                self.config.SPINNER5_NAME,
+                self.config.SPINNER6_NAME,
+            ] if name
+        ]
+        self.wheel = Wheel(spinner_names, radius=300)
+        self.wheel_spinner = WheelSpinner(self.wheel)
 
         # Initialise spinners, items, and obstacles.
         self._initialise_game_objects()
@@ -150,64 +167,6 @@ class Game:
             CornerObstacle("bottomright", self.playfield)
         ]
 
-    def _format_name_with_role(self, spinner: Spinner) -> str:
-        """
-        Optional helper for showing roles in display names.
-
-        Note: this is currently unused, because role indicators are rendered
-        in the UI bar via _get_role_indicator().
-        """
-        role = spinner.role
-
-        if role == SpecialRole.CLONE:
-            return f"{spinner.name} [C]"
-        if role == SpecialRole.GLITCH:
-            return f"{spinner.name} [G]"
-        if role == SpecialRole.VENOM:
-            return f"{spinner.name} [V]"
-        if role == SpecialRole.TITAN:
-            return f"{spinner.name} [T]"
-
-        return spinner.name
-
-    # --------------------------------------------------
-    # CLONE STATS AGGREGATION (GAME OVER)
-    # --------------------------------------------------
-
-    def _aggregate_clone_stats(self) -> List[Dict[str, Any]]:
-        """
-        Combine original + clone damage and health into a single stat line.
-
-        Assumes clones have names like:
-            "<BaseName> Clone 1", "<BaseName> Clone 2", etc.
-
-        Returns a list of dicts:
-            { "name": base_name, "team": team, "damage": int, "health": int }
-        sorted by (damage + health) descending.
-        """
-        combined: Dict[str, Dict[str, Any]] = {}
-
-        for s in self.all_spinners:
-            base_name = s.name.split(" Clone")[0]
-
-            if base_name not in combined:
-                combined[base_name] = {
-                    "name": base_name,
-                    "team": s.team,
-                    "damage": 0,
-                    "health": 0
-                }
-
-            combined[base_name]["damage"] += getattr(s, "damage_dealt", 0)
-            combined[base_name]["health"] += max(0, getattr(s, "health", 0))
-
-        # Sort by (damage + health), then damage, then health (all descending)
-        return sorted(
-            combined.values(),
-            key=lambda d: (d["damage"] + d["health"], d["damage"], d["health"]),
-            reverse=True
-        )
-
     # --------------------------------------------------
     # MAIN LOOP
     # --------------------------------------------------
@@ -238,19 +197,28 @@ class Game:
         """Advance the game simulation based on the current state."""
         now = pygame.time.get_ticks()
 
+        # -------------------------------
+        # WHEEL SPIN STATE  ← ADDED
+        # -------------------------------
+        if self.game_state == GameState.WHEEL_SPIN:
+            dt = self.clock.get_time() / 1000.0
+            self.wheel_spinner.update(dt)
+
+            if not self.wheel_spinner.active:
+                self.game_state = GameState.VS_SCREEN
+                self.vs_start_time = now
+            return
+
         if self.game_state == GameState.VS_SCREEN:
-            # Simple timed splash screen before countdown.
             if now - self.vs_start_time > self.config.VS_DISPLAY_TIME:
                 self.game_state = GameState.COUNTDOWN
                 self.last_time = now
 
         elif self.game_state == GameState.COUNTDOWN:
-            # Countdown ticks down once per second.
             if (now - self.last_time) >= 1000:
                 self.countdown -= 1
                 self.last_time = now
 
-            # Once it passes 0, the match begins.
             if self.countdown < 0:
                 self.game_state = GameState.PLAYING
                 self.match_start_time = now
@@ -260,13 +228,11 @@ class Game:
         elif self.game_state == GameState.PLAYING:
             self._update_playing_state()
 
-            # Check win condition: one team eliminated.
             alive = [s for s in self.all_spinners if s.health > 0]
             team_a = [s for s in alive if s.team == "TeamA"]
             team_b = [s for s in alive if s.team == "TeamB"]
 
             if not team_a or not team_b:
-                # If poison is still ticking, we allow the match to "resolve" before declaring winner.
                 self.game_state = (
                     GameState.DELAYED_VICTORY
                     if self._check_for_delayed_victory()
@@ -288,34 +254,25 @@ class Game:
         """
         active = [s for s in self.all_spinners if s.health > 0]
 
-        # Move each active spinner within the playfield bounds.
         for s in active:
             s.move(self.playfield)
 
-        # Spinner-spinner collisions (pairwise).
         for i in range(len(active)):
             for j in range(i + 1, len(active)):
                 CollisionManager.handle_spinner_collision(
                     active[i], active[j], self.asset_manager
                 )
 
-        # Role logic that depends on the rest of the roster.
         for s in active:
             s.check_phasing_completion(self.all_spinners, self.asset_manager)
-
-            # Clone role can create additional spinners (presumably handled internally).
             if s.role == SpecialRole.CLONE:
                 s.create_clone(self)
 
-        # Spinner-obstacle collisions (corners).
         for s in active:
             for o in self.corner_obstacles:
                 o.collide_with_spinner(s)
 
-        # Optionally stabilise total momentum/speed so the match doesn't "die out".
         CollisionManager.maintain_game_momentum(self.all_spinners)
-
-        # Items (spawn, despawn, pick-ups, effects).
         self._update_items(active)
 
     def _consume_item(self, item, sound_key: str) -> None:
@@ -354,12 +311,52 @@ class Game:
                 s.shield_end_time = now + self.config.SHIELD_DURATION
                 self._consume_item(self.shield_item, "shield_equip")
 
+    def _aggregate_clone_stats(self) -> List[Dict[str, Any]]:
+        """
+        Combine original + clone damage and health into a single stat line.
+        Returns a list of dicts: { "name", "team", "damage", "health" } sorted by (damage + health) descending.
+        """
+        combined: Dict[str, Dict[str, Any]] = {}
+
+        for s in self.all_spinners:
+            base_name = s.name.split(" Clone")[0]
+
+            if base_name not in combined:
+                combined[base_name] = {
+                    "name": base_name,
+                    "team": s.team,
+                    "damage": 0,
+                    "health": 0
+                }
+
+            combined[base_name]["damage"] += getattr(s, "damage_dealt", 0)
+            combined[base_name]["health"] += max(0, getattr(s, "health", 0))
+
+        return sorted(
+            combined.values(),
+            key=lambda d: (d["damage"] + d["health"], d["damage"], d["health"]),
+            reverse=True
+        )
+
     # --------------------------------------------------
     # RENDERING
     # --------------------------------------------------
 
     def _render(self):
         """Draw a full frame based on the current game state."""
+
+        # -------------------------------
+        # WHEEL SPIN RENDER  ← ADDED
+        # -------------------------------
+        if self.game_state == GameState.WHEEL_SPIN:
+            self.win.fill(Colours.BLACK)
+            self.wheel.draw(
+                self.win,
+                self.renderer.fonts.HEALTH_FONT,
+                self.renderer.fonts.HEALTH_FONT
+            )
+            return
+
         self.win.fill(Colours.BLACK)
 
         # UI bar background (top strip).
